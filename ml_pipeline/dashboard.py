@@ -112,7 +112,3 @@ with tab3:
         residual_path = f"temp_plots/{selected_model}_residual.png"
         if os.path.exists(residual_path):
             st.image(residual_path, use_container_width=True)
-
-st.markdown("---")
-st.markdown(
-    "📌 *Bu proje Kocaeli Üniversitesi - Büyük Veri Analizine Giriş Dersi Dönem Projesi kapsamında geliştirilmiştir.*")
