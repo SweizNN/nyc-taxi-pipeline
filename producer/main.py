@@ -138,6 +138,9 @@ def publish_batch(producer: KafkaProducer, topic: str, records: list[dict[str, A
 
 
 def dry_run_batch(topic: str, records: list[dict[str, Any]], key_field: str, rows_seen: int) -> int:
+    for record in records:
+        json.dumps(record, default=json_default)
+
     sample = records[0] if records else {}
     sample_payload = json.dumps(sample, default=json_default)[:500]
     logging.info(
