@@ -77,6 +77,15 @@ Run producer:
 docker compose --profile pipeline run --rm producer
 ```
 
+Producer settings are controlled with environment variables:
+
+```text
+PRODUCER_MAX_ROWS=10000       # use 0 to replay all rows
+PRODUCER_BATCH_SIZE=500       # Kafka publish/flush batch size
+PRODUCER_SLEEP_SECONDS=0.2    # delay between batches for pseudo-streaming
+PRODUCER_KEY_FIELD=PULocationID
+```
+
 Run Spark jobs from the Spark container:
 
 ```powershell
@@ -107,4 +116,3 @@ Suggested feature branches:
 - `feature/docker-docs`
 
 Each member should make real, explainable commits in their own branch.
-

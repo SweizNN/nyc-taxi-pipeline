@@ -8,7 +8,7 @@ We built a Dockerized big data pipeline that replays NYC Yellow Taxi trips throu
 
 - Docker containers are running
 - Kafka topic exists
-- Producer publishes taxi trip messages
+- Producer publishes taxi trip messages in configurable batches
 - Bronze Delta table is created
 - Silver Delta table contains cleaned and enriched trips
 - Gold Delta table contains ML-ready features
@@ -20,4 +20,3 @@ We built a Dockerized big data pipeline that replays NYC Yellow Taxi trips throu
 - Bronze/Silver/Gold layers make the pipeline easier to debug and explain.
 - Fare prediction avoids leakage by removing payment and surcharge columns from features.
 - The first version uses one month of data to prove the full pipeline, then can scale to more months.
-
