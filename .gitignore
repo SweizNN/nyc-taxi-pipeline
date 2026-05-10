@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Environment
+.env
+
+# Data files - keep large datasets local
+data/raw/*
+data/lookup/*
+data/delta/*
+!data/raw/.gitkeep
+!data/lookup/.gitkeep
+!data/delta/.gitkeep
+
+# Spark / Delta runtime output
+spark-warehouse/
+metastore_db/
+derby.log
+checkpoints/
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
