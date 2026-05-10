@@ -19,7 +19,7 @@ STOP_REQUESTED = False
 
 def configure_logging():
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO"),
+        level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
