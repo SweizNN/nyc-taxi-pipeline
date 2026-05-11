@@ -6,6 +6,7 @@ import seaborn as sns
 import os
 from pyspark.sql import SparkSession
 from delta import configure_spark_with_delta_pip
+import mlflow
 
 # Sayfa ayarları - Tasarım estetiği için geniş mod 
 st.set_page_config(page_title="NYC Taxi Fiyat Tahmini", layout="wide")
@@ -86,19 +87,71 @@ with tab1:
         ax.set_xlabel("Haftanın Günü (0=Pzt, 6=Paz)")
         st.pyplot(fig)
 
+    st.markdown("---")
+    st.subheader("🔍 Eksik Değer Analizi (Missing Values)")
+    missing_data = df.isnull().sum().reset_index()
+    missing_data.columns = ['Kolonlar', 'Eksik Değer Sayısı']
+
+    col_miss1, col_miss2 = st.columns([1, 2])
+    with col_miss1:
+        # Streamlit 1.23+ versiyonları hide_index parametresini destekler
+        st.dataframe(missing_data, hide_index=True, use_container_width=True)
+        if missing_data['Eksik Değer Sayısı'].sum() == 0:
+            st.success("Tüm eksik veriler (Null değerler) Delta Lake Silver/Gold katmanlarında başarıyla temizlenmiş!")
+        else:
+            st.warning("Veri setinde eksik değerler bulunuyor.")
+            
+    with col_miss2:
+        fig_missing, ax_missing = plt.subplots(figsize=(8, 3))
+        sns.barplot(x='Kolonlar', y='Eksik Değer Sayısı', data=missing_data, palette="Reds", ax=ax_missing)
+        plt.xticks(rotation=45, ha='right')
+        ax_missing.set_ylabel("Null Kayıt Sayısı")
+        st.pyplot(fig_missing)
+
 # --- SEKME 2: MODEL KARŞILAŞTIRMALARI ---
 with tab2:
     st.header("Makine Öğrenmesi Model Performansları")
-    st.markdown("Eğitilen 5 farklı regresyon modelinin MLflow metrikleri üzerinden karşılaştırması.")
+    st.markdown("Eğitilen regresyon modellerinin MLflow'dan çekilen **gerçek zamanlı** metrikleri üzerinden karşılaştırması.")
 
-    models_list = ["Linear_Regression", "Decision_Tree", "Random_Forest", "Gradient_Boosted_Trees", "Generalized_Linear_Ridge"]
-    r2_scores = [0.99, 0.96, 0.98, 0.99, 0.99]
+    # MLflow'dan dinamik veri çekme
+    mlflow_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+    mlflow.set_tracking_uri(mlflow_uri)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    sns.barplot(x=models_list, y=r2_scores, palette="mako", ax=ax)
-    ax.set_ylabel("R2 Skoru")
-    ax.set_ylim(0, 1.1)
-    plt.xticks(rotation=15)
+    metrics_df = pd.DataFrame()
+    try:
+        experiment = mlflow.get_experiment_by_name("NYC_Taxi_Fare_Prediction")
+        if experiment:
+            runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id])
+            if not runs.empty and 'params.model_type' in runs.columns:
+                # En güncel run'ları almak için tarihe göre sırala ve modele göre tekilleştir
+                latest_runs = runs.sort_values("start_time", ascending=False).drop_duplicates(subset=["params.model_type"])
+                
+                models_list, skorlar, metrikler = [], [], []
+                for _, row in latest_runs.iterrows():
+                    m_name = row['params.model_type']
+                    models_list.extend([m_name, m_name, m_name])
+                    skorlar.extend([row.get('metrics.r2_score', 0), row.get('metrics.rmse', 0), row.get('metrics.mae', 0)])
+                    metrikler.extend(["R2 (Yüksek Daha İyi)", "RMSE (Düşük Daha İyi)", "MAE (Düşük Daha İyi)"])
+                    
+                metrics_df = pd.DataFrame({"Model": models_list, "Skor": skorlar, "Metrik": metrikler})
+    except Exception as e:
+        st.warning("MLflow verileri çekilemedi. Henüz model eğitilmemiş olabilir.")
+
+    # Eğer MLflow'dan veri gelmezse (örneğin ilk çalıştırma öncesi) çökmeyi önlemek için varsayılan/örnek veriyi göster
+    if metrics_df.empty:
+        st.info("💡 Şu an ekranda varsayılan (örnek) model metriklerini görüyorsunuz. Modeller eğitildiğinde burası otomatik güncellenecektir.")
+        models_list = ["Linear_Regression", "Decision_Tree", "Random_Forest", "Gradient_Boosted_Trees", "Generalized_Linear_Ridge"]
+        metrics_df = pd.DataFrame({
+            "Model": models_list * 3,
+            "Skor": [0.85, 0.91, 0.94, 0.95, 0.86] + [1.2, 0.9, 0.5, 0.4, 1.1] + [0.99, 0.96, 0.98, 0.99, 0.99],
+            "Metrik": ["R2 (Yüksek Daha İyi)"] * 5 + ["RMSE (Düşük Daha İyi)"] * 5 + ["MAE (Düşük Daha İyi)"] * 5
+        })
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.barplot(x="Model", y="Skor", hue="Metrik", data=metrics_df, palette="viridis", ax=ax)
+    ax.set_ylabel("Metrik Değeri")
+    plt.title("Modellerin Regresyon Metriklerine Göre Karşılaştırması (Grouped Bar Chart)")
+    plt.xticks(rotation=20)
     st.pyplot(fig)
 
     st.subheader("🌟 En Etkili Özellikler (Feature Importance)")
@@ -111,7 +164,9 @@ with tab2:
 # --- SEKME 3: REGRESYON ANALİZLERİ ---
 with tab3:
     st.header("Model Detay Analizleri")
-    selected_model = st.selectbox("Model seçiniz:", models_list)
+    
+    unique_models = list(dict.fromkeys(models_list)) # Listedeki duplicate/tekrar eden model isimlerini temizle
+    selected_model = st.selectbox("Model seçiniz:", unique_models)
 
     col1, col2 = st.columns(2)
     with col1:

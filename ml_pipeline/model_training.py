@@ -40,9 +40,9 @@ except Exception as e:
     })
     df['label'] = 3.0 + (df['trip_distance'] * 2.5) + (df['pickup_hour'] * 0.5) + np.random.normal(0, 2, n_samples)
 
-# Scikit-Learn modelleri string/kategorik kolonları OHE olmadan desteklemediği için sadece sayısal verileri alıyoruz.
-numeric_cols = df.select_dtypes(include=[np.number]).columns
-df = df[numeric_cols]
+
+# Scikit-Learn modelleri için kategorik (string) lokasyon kolonlarını One-Hot Encoding (OHE) ile sayısal formata çeviriyoruz.
+df = pd.get_dummies(df, drop_first=True, dtype=float)
 
 # Hedef değişken (y) ve özellikler (X)
 if 'label' in df.columns:
@@ -67,7 +67,8 @@ models = {
 }
 
 # --- 3. MLFLOW ENTEGRASYONU VE EĞİTİM ---
-mlflow.set_tracking_uri("http://localhost:5000")  # MLflow sunucu adresi
+mlflow_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+mlflow.set_tracking_uri(mlflow_uri)
 mlflow.set_experiment("NYC_Taxi_Fare_Prediction")
 
 # Grafikleri geçici kaydetmek için klasör

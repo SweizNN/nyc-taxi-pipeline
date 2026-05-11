@@ -141,7 +141,7 @@ docker compose exec spark spark-submit spark_jobs/silver_to_gold.py
 Run model training:
 
 ```powershell
-docker compose exec spark spark-submit ml_pipeline/train_fare_model.py
+docker compose exec spark spark-submit ml_pipeline/model_training.py
 ```
 
 MLflow UI:
