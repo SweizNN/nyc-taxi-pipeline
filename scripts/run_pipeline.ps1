@@ -16,7 +16,7 @@ Write-Host "Building Gold Delta feature layer..."
 docker compose exec spark spark-submit spark_jobs/silver_to_gold.py
 
 Write-Host "Training fare prediction models and logging to MLflow..."
-docker compose exec spark spark-submit ml_pipeline/train_fare_model.py
+docker compose exec spark spark-submit ml_pipeline/model_training.py
 
 Write-Host "Done. Open MLflow at http://localhost:5000"
 

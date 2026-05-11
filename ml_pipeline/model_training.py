@@ -12,29 +12,45 @@ import seaborn as sns
 import os
 
 # --- 1. VERİ OKUMA VE HAZIRLIK ---
-# NOT: Arkadaşın veriyi hazırladığında buradaki dosya yolunu güncelleyeceksin.
-# Şimdilik test edebilmen için kod hata vermesin diye rastgele küçük bir veri seti oluşturuyoruz.
-# GERÇEK VERİ GELDİĞİNDE ŞU SATIRI AÇ:
-# df = pd.read_parquet("arkadasinin_hazirladigi_veri.parquet")
+print("Gold layer'dan veri yükleniyor...")
+from pyspark.sql import SparkSession
+from delta import configure_spark_with_delta_pip
+import os
 
-print("Veri yükleniyor...")
-# (Aşağıdaki kısım test içindir, gerçek veri gelince silinebilir)
-np.random.seed(42)
-n_samples = 5000
-df = pd.DataFrame({
-    'trip_distance': np.random.uniform(0.5, 20.0, n_samples),
-    'pickup_hour': np.random.randint(0, 24, n_samples),
-    'day_of_week': np.random.randint(0, 7, n_samples),
-    'is_weekend': np.random.randint(0, 2, n_samples),
-    'passenger_count': np.random.randint(1, 5, n_samples),
-})
-# Rastgele mantıklı bir ücret (fare_amount) formülü uyduruyoruz
-df['fare_amount'] = 3.0 + (df['trip_distance'] * 2.5) + (df['pickup_hour'] * 0.5) + np.random.normal(0, 2, n_samples)
-# (Test verisi sonu)
+builder = SparkSession.builder.appName("NYC_Taxi_Model_Training") \
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+    .config("spark.sql.shuffle.partitions", "4")
+
+spark = configure_spark_with_delta_pip(builder).getOrCreate()
+
+gold_path = os.getenv("DELTA_GOLD_PATH", "/app/data/delta/gold/fare_features")
+try:
+    df_spark = spark.read.format("delta").load(gold_path)
+    df = df_spark.toPandas()
+except Exception as e:
+    print(f"Gold tablo okunamadı: {e}. Test verisi kullanılıyor...")
+    np.random.seed(42)
+    n_samples = 5000
+    df = pd.DataFrame({
+        'trip_distance': np.random.uniform(0.5, 20.0, n_samples),
+        'pickup_hour': np.random.randint(0, 24, n_samples),
+        'pickup_day_of_week': np.random.randint(0, 7, n_samples),
+        'passenger_count': np.random.randint(1, 5, n_samples),
+    })
+    df['label'] = 3.0 + (df['trip_distance'] * 2.5) + (df['pickup_hour'] * 0.5) + np.random.normal(0, 2, n_samples)
+
+# Scikit-Learn modelleri string/kategorik kolonları OHE olmadan desteklemediği için sadece sayısal verileri alıyoruz.
+numeric_cols = df.select_dtypes(include=[np.number]).columns
+df = df[numeric_cols]
 
 # Hedef değişken (y) ve özellikler (X)
-X = df.drop('fare_amount', axis=1)
-y = df['fare_amount']
+if 'label' in df.columns:
+    X = df.drop('label', axis=1)
+    y = df['label']
+else:
+    X = df.drop('fare_amount', axis=1)
+    y = df['fare_amount']
 features = X.columns
 
 # Eğitim (%80) ve Test (%20) ayrımı
