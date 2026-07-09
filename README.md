@@ -1,5 +1,5 @@
 # NYC Yellow Taxi Big Data Pipeline
-
+DENEME
 End-to-end big data project for NYC Yellow Taxi trip records. The pipeline replays historical TLC Parquet data through Kafka as a pseudo-stream, processes it with Spark, stores curated layers in Delta Lake, and tracks fare prediction experiments with MLflow.
 
 ## Project Scope
