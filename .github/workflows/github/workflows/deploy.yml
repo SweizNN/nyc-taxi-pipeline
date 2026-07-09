@@ -1,0 +1,28 @@
+name: Sunucuya Otomatik Dağıtım (CI/CD)
+
+# Workflow'un ne zaman tetikleneceğini belirliyoruz
+on:
+  push:
+    branches:
+      - main # Projenin ana branch'i farklıysa (örneğin master) burayı değiştir
+
+jobs:
+  deploy:
+    # GitHub'ın bulut sunucuları yerine doğrudan senin sanal makineni hedefliyoruz!
+    runs-on: self-hosted
+
+    steps:
+      - name: Güncel Kodu Sunucuya Çek
+        uses: actions/checkout@v4
+
+      - name: Docker Konteynerlerini Yeniden Başlat
+        run: |
+          echo "🚀 Yeni kodlar algılandı, dağıtım başlıyor..."
+          
+          # Varsa eski konteynerleri durdur
+          docker compose down
+          
+          # Yeni kodlarla imajları tekrar derle ve arka planda başlat
+          docker compose up --build -d
+          
+          echo "✅ Sistem başarıyla güncellendi ve ayağa kalktı!"
