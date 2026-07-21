@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: nyc-taxi-pipeline
+  labels:
+    app: dashboard
+    component: visualization
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: ghcr.io/sweiznn/nyc-taxi-dashboard:latest
+        ports:
+        - containerPort: 8501
+          name: http
+        env:
+        - name: DELTA_GOLD_PATH
+          value: "/data/delta/gold/fare_features"
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow-service.nyc-taxi-pipeline.svc.cluster.local:5000"
+        volumeMounts:
+        - name: spark-data
+          mountPath: /data
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 15
+          periodSeconds: 10
+      volumes:
+      - name: spark-data
+        persistentVolumeClaim:
+          claimName: spark-data-pvc
+---
+# --- İç iletişim servisi ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-service
+  namespace: nyc-taxi-pipeline
+spec:
+  selector:
+    app: dashboard
+  ports:
+  - port: 80
+    targetPort: 8501
+    name: http
+---
+# --- Dış erişim (tarayıcıdan http://localhost:30880 veya port-forward ile) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-nodeport
+  namespace: nyc-taxi-pipeline
+spec:
+  type: NodePort
+  selector:
+    app: dashboard
+  ports:
+  - port: 8501
+    targetPort: 8501
+    nodePort: 30880
+    name: http

@@ -1,0 +1,30 @@
+# --- MLflow için kalıcı depolama (model artifacts, SQLite DB) ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-pvc
+  namespace: nyc-taxi-pipeline
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# --- Spark pipeline için paylaşımlı depolama ---
+# Tüm Spark pod'ları (producer, bronze, silver, gold, training) bu PVC'yi kullanır.
+# Raw Parquet, Delta Lake katmanları ve checkpoint'ler burada tutulur.
+# Not: Üretim ortamında ReadWriteMany için NFS/CephFS StorageClass veya
+#       object storage (MinIO/S3) kullanılması önerilir.
+#       Minikube/Kind için "standard" StorageClass yeterlidir (tek node).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spark-data-pvc
+  namespace: nyc-taxi-pipeline
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

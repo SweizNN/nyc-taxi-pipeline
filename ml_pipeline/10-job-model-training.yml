@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-training-job
+  namespace: nyc-taxi-pipeline
+  labels:
+    app: model-training
+    component: ml
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: spark
+      containers:
+      - name: spark-submit-model-training
+        # CI/CD tarafından ghcr.io/sweiznn yerini IMAGE_REGISTRY alacak
+        image: ghcr.io/sweiznn/nyc-taxi-spark:latest
+        imagePullPolicy: Always
+        command: ["/opt/spark/bin/spark-submit"]
+        args: [
+          "--master", "k8s://https://kubernetes.default.svc",
+          "--deploy-mode", "client",
+          "--name", "model-training",
+          "--conf", "spark.kubernetes.namespace=nyc-taxi-pipeline",
+          "--conf", "spark.kubernetes.container.image=ghcr.io/sweiznn/nyc-taxi-spark:latest",
+          "--conf", "spark.kubernetes.authenticate.driver.serviceAccountName=spark",
+          "--conf", "spark.executor.instances=1",
+          "local:///app/ml_pipeline/model_training.py"
+        ]
+        env:
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow-service.nyc-taxi-pipeline.svc.cluster.local:5000"
+        - name: DELTA_GOLD_PATH
+          value: "/data/delta/gold/fare_features"
+        volumeMounts:
+        - name: spark-data
+          mountPath: /data
+        # model_training.py grafikleri temp_plots/ dizinine kaydeder.
+        # Pod silinince grafikler de silinir; MLflow'a artifact olarak loglanmış olur.
+        - name: temp-plots
+          mountPath: /app/temp_plots
+      volumes:
+      - name: spark-data
+        persistentVolumeClaim:
+          claimName: spark-data-pvc
+      - name: temp-plots
+        emptyDir: {}
+      restartPolicy: Never
+  backoffLimit: 1

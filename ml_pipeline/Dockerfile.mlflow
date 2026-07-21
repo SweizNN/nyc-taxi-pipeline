@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Kalıcı veriler için mount edilecek dizinleri oluştur
+RUN mkdir -p /mlflow_data/artifacts
+
+# Build context'in projenin kök dizini olduğu varsayılmıştır.
+COPY ml_pipeline/requirements.mlflow.txt .
+RUN pip install --no-cache-dir -r requirements.mlflow.txt
+
+# MLflow sunucusunu başlatmak için varsayılan komut
+CMD ["mlflow", "server", \
+     "--host", "0.0.0.0", \
+     "--port", "5000", \
+     "--backend-store-uri", "sqlite:////mlflow_data/mlflow.db", \
+     "--default-artifact-root", "/mlflow_data/artifacts"]

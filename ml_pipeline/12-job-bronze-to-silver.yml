@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bronze-to-silver-job
+  namespace: nyc-taxi-pipeline
+  labels:
+    app: bronze-to-silver
+    component: processing
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: spark
+      containers:
+      - name: spark-submit-bronze-to-silver
+        # CI/CD tarafından ghcr.io/sweiznn yerini IMAGE_REGISTRY alacak
+        image: ghcr.io/sweiznn/nyc-taxi-spark:latest
+        imagePullPolicy: Always
+        command: ["/opt/spark/bin/spark-submit"]
+        args: [
+          "--master", "k8s://https://kubernetes.default.svc",
+          "--deploy-mode", "client",
+          "--name", "bronze-to-silver",
+          "--conf", "spark.kubernetes.namespace=nyc-taxi-pipeline",
+          "--conf", "spark.kubernetes.container.image=ghcr.io/sweiznn/nyc-taxi-spark:latest",
+          "--conf", "spark.kubernetes.authenticate.driver.serviceAccountName=spark",
+          "--conf", "spark.executor.instances=1",
+          "local:///app/spark_jobs/bronze_to_silver.py"
+        ]
+        env:
+        - name: DELTA_BRONZE_PATH
+          value: "/data/delta/bronze/yellow_taxi_trips"
+        - name: DELTA_SILVER_PATH
+          value: "/data/delta/silver/yellow_taxi_trips"
+        - name: TAXI_ZONE_LOOKUP
+          value: "/data/lookup/taxi_zone_lookup.csv"
+        - name: SILVER_LOG_COUNTS
+          value: "true"
+        volumeMounts:
+        - name: spark-data
+          mountPath: /data
+      volumes:
+      - name: spark-data
+        persistentVolumeClaim:
+          claimName: spark-data-pvc
+      restartPolicy: Never
+  backoffLimit: 1
+
+

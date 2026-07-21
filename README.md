@@ -1,162 +1,219 @@
-# NYC Yellow Taxi Big Data Pipeline
+# NYC Yellow Taxi — Kubernetes Big Data Pipeline
 
-End-to-end big data project for NYC Yellow Taxi trip records. The pipeline replays historical TLC Parquet data through Kafka as a pseudo-stream, processes it with Spark, stores curated layers in Delta Lake, and tracks fare prediction experiments with MLflow.
+End-to-end big data pipeline. Her işlem gerçek bir Kubernetes pod'unda çalışır:
+Kafka Producer → Spark Structured Streaming → Delta Lake (Bronze/Silver/Gold) → ML Training → Dashboard
 
-## Project Scope
-
-- Dataset: NYC TLC Yellow Taxi Trip Records
-- Initial data target: `yellow_tripdata_2023-01.parquet`
-- Lookup data: `taxi_zone_lookup.csv`
-- Main prediction target: `fare_amount`
-- Optional second target: `trip_duration_minutes`
-
-## Architecture
-
-```text
-NYC Yellow Taxi Parquet
-        |
-        v
-Kafka Producer
-        |
-        v
-Kafka topic: yellow_taxi_trips
-        |
-        v
-Spark Structured Streaming
-        |
-        v
-Delta Bronze
-        |
-        v
-Spark batch cleaning + zone lookup join
-        |
-        v
-Delta Silver
-        |
-        v
-Spark batch feature engineering
-        |
-        v
-Delta Gold
-        |
-        v
-ML training + MLflow tracking
+```
+                 GitHub Actions CI/CD
+                        │
+              ┌──────── push ────────┐
+              │                      │
+         Build Images           kubectl apply
+              │                      │
+     ─────────────────────────────────────────────────────
+              │   Kubernetes Cluster (nyc-taxi-pipeline)  │
+              │                                           │
+     [StatefulSet] Zookeeper   [StatefulSet] Kafka        │
+              │                      │                    │
+     [Job] Producer ──────────────── ▼                    │
+              │              Kafka Topic                  │
+              │                      │                    │
+     [Deployment] stream-to-bronze ──▼                    │
+              │              Delta Bronze                 │
+              │                      │                    │
+     [Job] bronze-to-silver ─────────▼                    │
+              │              Delta Silver                 │
+              │                      │                    │
+     [Job] silver-to-gold ───────────▼                    │
+              │              Delta Gold                   │
+              │                      │                    │
+     [Job] model-training ───────────▼                    │
+              │              MLflow Experiments           │
+              │                                           │
+     [Deployment] MLflow    [Deployment] Dashboard        │
+     ─────────────────────────────────────────────────────
 ```
 
-## Repository Layout
+## Kubernetes Manifest Dosyaları (`ml_pipeline/`)
 
-```text
-producer/       Kafka producer that replays Parquet rows as JSON messages
-spark_jobs/     Spark jobs for Bronze, Silver, and Gold Delta layers
-ml_pipeline/    Fare prediction training and MLflow logging
-scripts/        Helper scripts for local pipeline execution
-docs/           Architecture and presentation notes
-data/           Local-only raw, lookup, and Delta data folders
+| Dosya | Tür | Açıklama |
+|-------|-----|----------|
+| `00-namespace.yml` | Namespace | `nyc-taxi-pipeline` namespace |
+| `01-pvc.yml` | PVC | `mlflow-pvc` (5Gi) + `spark-data-pvc` (20Gi) |
+| `02-kafka.yml` | StatefulSet + Service | Kafka + Zookeeper |
+| `03-mlflow.yml` | Deployment + Service | MLflow tracking + NodePort 30500 |
+| `04-dashboard.yml` | Deployment + Service | Streamlit dashboard + NodePort 30880 |
+| `05-spark-rbac.yml` | RBAC | Spark için ServiceAccount + Role |
+| `06-job-producer.yml` | Job | Parquet → Kafka producer |
+| `10-job-model-training.yml` | Job | Spark ML training |
+| `11-deployment-stream-to-bronze.yml` | Deployment | Kafka → Delta Bronze streaming |
+| `12-job-bronze-to-silver.yml` | Job | Delta Bronze → Silver batch |
+| `13-job-silver-to-gold.yml` | Job | Delta Silver → Gold batch |
+
+## Veri Dosyaları
+
+```
+data/
+├── raw/
+│   └── yellow_tripdata_2023-01.parquet   # TLC'den indir
+└── lookup/
+    └── taxi_zone_lookup.csv              # TLC'den indir
 ```
 
-## Data Files
+İndirme linkleri:
+- https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2023-01.parquet
+- https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv
 
-Do not commit large data files to GitHub. Download these files locally:
+## 1. CI/CD — GitHub Actions Kurulumu
 
-- `data/raw/yellow_tripdata_2023-01.parquet`
-- `data/lookup/taxi_zone_lookup.csv`
+### GitHub Secrets Ekleme
 
-The `.gitignore` keeps large raw and Delta files out of version control.
+`Settings > Secrets and variables > Actions > New repository secret`:
 
-## Quick Start
+| Secret | Değer | Ne için? |
+|--------|-------|---------|
+| `KUBECONFIG` | `~/.kube/config` içeriği | K8s cluster erişimi |
 
-Start infrastructure:
+> **Not:** GHCR için ayrıca Docker Hub secret'ı gerekmez. `GITHUB_TOKEN` otomatik kullanılır.
+
+### Trigger
+
+```bash
+git push origin main
+# Actions sekmesinde: Build & Push → Deploy to Kubernetes
+```
+
+## 2. Local Terminal — Adım Adım Öğrenim
+
+### Gereksinimler
+
+- `kubectl` kurulu
+- Minikube, Kind veya Docker Desktop Kubernetes aktif
+
+### Otomatik Script
 
 ```powershell
-docker compose up -d kafka zookeeper mlflow spark
+# WSL veya Git Bash'te:
+chmod +x scripts/k8s-local-run.sh
+
+# Tüm pipeline'ı sırayla çalıştır:
+./scripts/k8s-local-run.sh full
+
+# Veya adım adım:
+./scripts/k8s-local-run.sh infra      # Kafka, MLflow, Dashboard
+./scripts/k8s-local-run.sh stream     # Stream-to-Bronze başlat
+./scripts/k8s-local-run.sh producer   # Kafka'ya veri gönder
+./scripts/k8s-local-run.sh pipeline   # Bronze→Silver→Gold→Training
+./scripts/k8s-local-run.sh ui         # Web UI port-forward
+./scripts/k8s-local-run.sh status     # Pod durumları
+./scripts/k8s-local-run.sh clean      # Her şeyi sil
 ```
 
-### Producer Dry Run
-
-Use dry-run mode before starting Kafka publishing. It reads the Parquet file, normalizes rows to JSON-compatible records, and validates batching without connecting to Kafka.
-
-Docker one-shot:
+### Manuel Adımlar
 
 ```powershell
-docker compose --profile pipeline build producer
-docker compose --profile pipeline run --rm --no-deps -e PRODUCER_DRY_RUN=true -e PRODUCER_MAX_ROWS=1000 -e PRODUCER_BATCH_SIZE=250 producer
+# ── ALTYAPI ────────────────────────────────────────────────
+kubectl apply -f ml_pipeline/00-namespace.yml
+kubectl apply -f ml_pipeline/01-pvc.yml
+kubectl apply -f ml_pipeline/05-spark-rbac.yml
+kubectl apply -f ml_pipeline/02-kafka.yml
+
+# Kafka'yı izle:
+kubectl get pods -n nyc-taxi-pipeline -w
+
+# ── VERİYİ PVC'YE KOPYALA ─────────────────────────────────
+# Önce herhangi bir çalışan pod'u bul:
+$POD = kubectl get pod -n nyc-taxi-pipeline -o jsonpath='{.items[0].metadata.name}'
+kubectl cp data/raw/yellow_tripdata_2023-01.parquet ${POD}:/data/raw/ -n nyc-taxi-pipeline
+kubectl cp data/lookup/taxi_zone_lookup.csv ${POD}:/data/lookup/ -n nyc-taxi-pipeline
+
+# ── MLFLow + DASHBOARD ────────────────────────────────────
+kubectl apply -f ml_pipeline/03-mlflow.yml
+kubectl apply -f ml_pipeline/04-dashboard.yml
+
+# ── STREAM-TO-BRONZE (sürekli çalışır) ─────────────────────
+kubectl apply -f ml_pipeline/11-deployment-stream-to-bronze.yml
+
+# Streaming log'larını izle:
+kubectl logs -f deployment/stream-to-bronze -n nyc-taxi-pipeline
+
+# ── PRODUCER (Kafka'ya veri gönder) ─────────────────────────
+kubectl apply -f ml_pipeline/06-job-producer.yml
+kubectl logs -f job/producer-job -n nyc-taxi-pipeline
+
+# ── BATCH JOB'LAR (sırayla) ─────────────────────────────────
+kubectl apply -f ml_pipeline/12-job-bronze-to-silver.yml
+kubectl wait --for=condition=complete job/bronze-to-silver-job -n nyc-taxi-pipeline --timeout=600s
+
+kubectl apply -f ml_pipeline/13-job-silver-to-gold.yml
+kubectl wait --for=condition=complete job/silver-to-gold-job -n nyc-taxi-pipeline --timeout=600s
+
+kubectl apply -f ml_pipeline/10-job-model-training.yml
+kubectl wait --for=condition=complete job/model-training-job -n nyc-taxi-pipeline --timeout=900s
+
+# ── DURUM KONTROLÜ ─────────────────────────────────────────
+kubectl get pods -n nyc-taxi-pipeline
+kubectl get jobs -n nyc-taxi-pipeline
+kubectl get pvc  -n nyc-taxi-pipeline
 ```
 
-Use `-e LOG_LEVEL=DEBUG` to print a short sample JSON payload in dry-run logs.
+## 3. Web Arayüzleri
 
-### Publish To Kafka
-
-After dry-run succeeds, publish records to Kafka:
+### Port-Forward ile Erişim
 
 ```powershell
-docker compose --profile pipeline run --rm producer
+# Terminal 1 — MLflow (Deney takibi, model karşılaştırma):
+kubectl port-forward svc/mlflow-service 5000:5000 -n nyc-taxi-pipeline
+# → http://localhost:5000
+
+# Terminal 2 — Dashboard (EDA, model metrikleri, görselleştirmeler):
+kubectl port-forward svc/dashboard-service 8501:80 -n nyc-taxi-pipeline
+# → http://localhost:8501
 ```
 
-Producer settings are controlled with environment variables:
-
-```text
-PRODUCER_MAX_ROWS=10000       # use 0 to replay all rows
-PRODUCER_BATCH_SIZE=500       # Kafka publish/flush batch size
-PRODUCER_SLEEP_SECONDS=0.2    # delay between batches for pseudo-streaming
-PRODUCER_KEY_FIELD=PULocationID
-PRODUCER_DRY_RUN=false        # true validates Parquet/JSON without Kafka publish
-```
-
-### Build Bronze Layer
-
-After the producer publishes messages to Kafka, run the streaming job. It reads JSON messages from Kafka and writes raw records with Kafka metadata to Delta Bronze.
+### NodePort ile Erişim (Minikube)
 
 ```powershell
-docker compose exec spark spark-submit spark_jobs/stream_to_bronze.py
+minikube service mlflow-nodeport -n nyc-taxi-pipeline --url     # port 30500
+minikube service dashboard-nodeport -n nyc-taxi-pipeline --url  # port 30880
 ```
 
-Useful Bronze environment variables:
-
-```text
-BRONZE_STARTING_OFFSETS=earliest
-BRONZE_MAX_OFFSETS_PER_TRIGGER=     # optional throttle
-BRONZE_CHECKPOINT_PATH=/app/data/delta/checkpoints/bronze_yellow_taxi_trips
-```
-
-### Build Silver Layer
-
-The Silver job parses Bronze JSON, filters invalid trips, calculates time features, and enriches pickup/dropoff IDs with `taxi_zone_lookup.csv`.
+## Faydalı kubectl Komutları
 
 ```powershell
-docker compose exec spark spark-submit spark_jobs/bronze_to_silver.py
+# Pod log'larını canlı izle:
+kubectl logs -f <pod-adi> -n nyc-taxi-pipeline
+
+# Pod içine bağlan:
+kubectl exec -it <pod-adi> -n nyc-taxi-pipeline -- bash
+
+# Job'u yeniden çalıştır:
+kubectl delete job bronze-to-silver-job -n nyc-taxi-pipeline
+kubectl apply -f ml_pipeline/12-job-bronze-to-silver.yml
+
+# Silver içeriğini sorgula (spark pod içinde):
+kubectl exec -it deployment/stream-to-bronze -n nyc-taxi-pipeline -- \
+  spark-sql -e "SELECT pickup_borough, COUNT(*) FROM delta.\`/data/delta/silver/yellow_taxi_trips\` GROUP BY 1"
+
+# Tüm namespace'i sil (temizlik):
+kubectl delete namespace nyc-taxi-pipeline
 ```
 
-Inspect Silver output:
+## Ortam Değişkenleri
 
-```powershell
-docker compose exec spark spark-sql -e 'SELECT pickup_borough, dropoff_borough, COUNT(*) AS trips FROM delta.`/app/data/delta/silver/yellow_taxi_trips` GROUP BY pickup_borough, dropoff_borough LIMIT 10'
-```
+| Değişken | Varsayılan | Açıklama |
+|----------|-----------|---------|
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka.nyc-taxi-pipeline.svc.cluster.local:9092` | Kafka adresi |
+| `DELTA_BRONZE_PATH` | `/data/delta/bronze/yellow_taxi_trips` | Bronze Delta yolu |
+| `DELTA_SILVER_PATH` | `/data/delta/silver/yellow_taxi_trips` | Silver Delta yolu |
+| `DELTA_GOLD_PATH` | `/data/delta/gold/fare_features` | Gold Delta yolu |
+| `MLFLOW_TRACKING_URI` | `http://mlflow-service...:5000` | MLflow sunucu |
+| `PRODUCER_MAX_ROWS` | `10000` | Kafka'ya gönderilecek satır sayısı |
+| `PRODUCER_DRY_RUN` | `false` | `true` → Kafka'ya bağlanmadan test |
 
-### Build Gold Layer
+## Mimari Kararlar
 
-```powershell
-docker compose exec spark spark-submit spark_jobs/silver_to_gold.py
-```
-
-Run model training:
-
-```powershell
-docker compose exec spark spark-submit ml_pipeline/model_training.py
-```
-
-MLflow UI:
-
-```text
-http://localhost:5000
-```
-
-## Team Workflow
-
-Suggested feature branches:
-
-- `feature/kafka-producer`
-- `feature/spark-bronze-silver`
-- `feature/mlflow-training`
-- `feature/docker-docs`
-
-Each member should make real, explainable commits in their own branch.
+- **`--deploy-mode client`**: Spark Job pod'u driver olarak çalışır; K8s executor pod'larını otomatik başlatır. `cluster` modu ikinci bir driver pod oluşturup çakışma yaratırdı.
+- **`spark-data-pvc`**: Tüm Spark pod'ları aynı Delta Lake verilerine erişmek için bu PVC'yi paylaşır. Üretimde MinIO/S3 önerilir.
+- **Dashboard PySpark-free**: Dashboard pod'u artık sadece Pandas ile Parquet okur; ~2GB → ~500MB imaj boyutu.
+- **GHCR**: GitHub Container Registry, `GITHUB_TOKEN` ile secret gerekmeden çalışır.
