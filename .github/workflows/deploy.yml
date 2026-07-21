@@ -7,8 +7,9 @@ on:
 
 # IMAGE_REGISTRY: GitHub Container Registry (GHCR) kullanılıyor.
 # Değiştirmek istersen Docker Hub için: docker.io/KULLANICI_ADIN
+
 env:
-  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGE_REGISTRY: ghcr.io/sweiznn
 
 jobs:
   # ─────────────────────────────────────────────────────────
